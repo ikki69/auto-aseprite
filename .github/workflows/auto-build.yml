@@ -3,7 +3,6 @@ name: Auto build Aseprite
 on:
   push:
     branches: main
-
   workflow_dispatch:
 
 permissions:
@@ -39,7 +38,14 @@ jobs:
         run: |
           mkdir build
           cd build
-          cmake "${{ github.workspace }}/src/aseprite" -G Ninja -DCMAKE_BUILD_TYPE=MinSizeRel -DLAF_BACKEND=skia -DSKIA_DIR="${{ github.workspace }}/src/skia" -DSKIA_LIBRARY_DIR="${{ github.workspace }}/src/skia/out/Release-x64" -DSKIA_LIBRARY="${{ github.workspace }}/src/skia/out/Release-x64/skia.lib"
+          cmake "${{ github.workspace }}/src/aseprite" -G Ninja ^
+            -DCMAKE_BUILD_TYPE=MinSizeRel ^
+            -DLAF_BACKEND=skia ^
+            -DSKIA_DIR="${{ github.workspace }}/src/skia" ^
+            -DSKIA_LIBRARY_DIR="${{ github.workspace }}/src/skia/out/Release-x64" ^
+            -DSKIA_LIBRARY="${{ github.workspace }}/src/skia/out/Release-x64/skia.lib" ^
+            -DENABLE_UPDATER=OFF ^
+            -DENABLE_OPENSSL=OFF
           cmake --build . --config MinSizeRel --target aseprite
 
       - name: Get version
