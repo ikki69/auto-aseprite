@@ -1,59 +1,72 @@
-import requests
-import os
+name: Auto build Aseprite
 
-ASEPRITE_REPOSITORY = "aseprite/aseprite"
-SKIA_REPOSITORY = "aseprite/skia"
-SKIA_RELEASE_FILE_NAME = "Skia-Windows-Release-x64.zip"
+on:
+  push:
+    branches: main
+  workflow_dispatch:
 
+permissions:
+  contents: write
 
-def get_latest_tag_aseprite():
-    response = requests.get(
-        f"https://api.github.com/repos/{ASEPRITE_REPOSITORY}/releases"
-    )
-    response_json = response.json()
+jobs:
+  auto-build:
+    name: Auto build Aseprite for Windows x64
+    runs-on: windows-2022
 
-    for release in response_json:
-        if "beta" not in release["tag_name"].lower():
-            return release["tag_name"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    return None
+      - name: Install Python requirements
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
+      - name: Download Aseprite & Skia
+        run: |
+          python download.py
 
-def save_aseprite_tag(tag):
-    with open("version.txt", "w") as f:
-        f.write(tag)
+      - name: Setup Ninja
+        uses: ashutoshvarma/setup-ninja@v1.1
 
+      - name: Setup MSVC Developer Command Prompt
+        uses: TheMrMilchmann/setup-msvc-dev@v3
+        with:
+          arch: x64
 
-def clone_aseprite(tag):
-    clone_url = f"https://github.com/{ASEPRITE_REPOSITORY}.git"
-    git_cmd = f"git clone -b {tag} {clone_url} src/aseprite --depth 1"
-    os.system(git_cmd)
-    os.system("cd src/aseprite && git submodule update --init --recursive")
+      - name: Build Aseprite
+        run: |
+          mkdir build
+          cd build
+          cmake "${{ github.workspace }}/src/aseprite" -G Ninja ^
+            -DCMAKE_BUILD_TYPE=MinSizeRel ^
+            -DLAF_BACKEND=skia ^
+            -DSKIA_DIR="${{ github.workspace }}/src/skia" ^
+            -DSKIA_LIBRARY_DIR="${{ github.workspace }}/src/skia/out/Release-x64" ^
+            -DSKIA_LIBRARY="${{ github.workspace }}/src/skia/out/Release-x64/skia.lib" ^
+            -DENABLE_UPDATER=OFF ^
+            -DENABLE_OPENSSL=OFF
+          cmake --build . --config MinSizeRel --target aseprite
 
+      - name: Fix missing libcrypto
+        run: |
+          Copy-Item "C:/Windows/System32/libcrypto-3-x64.dll" "build/bin" -Force
 
-def get_latest_tag_skia():
-    # response = requests.get(f'https://api.github.com/repos/{SKIA_REPOSITORY}/releases/latest')
-    # response_json = response.json()
-    # return response_json['tag_name']
-    return "m124-08a5439a6b"
+      - name: Get version
+        id: get_version
+        run: |
+          $version = Get-Content version.txt
+          echo "version=$version" >> $env:GITHUB_OUTPUT
 
+      - name: Zip Aseprite
+        run: |
+          cd build/bin
+          7z a ../../Aseprite-Windows-x64-${{ steps.get_version.outputs.version }}.zip *
 
-def download_skia_for_windows(tag):
-    download_url = f"https://github.com/{SKIA_REPOSITORY}/releases/download/{tag}/{SKIA_RELEASE_FILE_NAME}"
-
-    file_response = requests.get(download_url)
-    file_response.raise_for_status()
-
-    with open(f"src/{SKIA_RELEASE_FILE_NAME}", "wb") as f:
-        f.write(file_response.content)
-
-    os.system(f"7z x src/{SKIA_RELEASE_FILE_NAME} -osrc/skia")
-
-
-if __name__ == "__main__":
-    aseprite_tag = get_latest_tag_aseprite()
-    clone_aseprite(aseprite_tag)
-    save_aseprite_tag(aseprite_tag)
-
-    skia_tag = get_latest_tag_skia()
-    download_skia_for_windows(skia_tag)
+      - name: GH Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Aseprite-Windows-x64-${{ steps.get_version.outputs.version }}
+          tag_name: ${{ steps.get_version.outputs.version }}
+          files: |
+            Aseprite-Windows-x64-${{ steps.get_version.outputs.version }}.zip
